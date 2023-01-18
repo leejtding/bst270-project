@@ -1,0 +1,102 @@
+---
+title: "BST 270 Individual Project Analysis"
+output:
+  pdf_document: default
+  html_document: default
+date: '2022-1-18'
+---
+
+We seek to reproduce the figures presented in the 2017 538 article ["How 'Qi' and 'Za' Changed Scrabble."](https://fivethirtyeight.com/features/how-qi-and-za-changed-scrabble/)
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+```
+
+## Load Data
+
+Load scrabble game data directly from corresponding 538 GitHub repo.
+
+```{r}
+scrabble_df = read.csv("https://media.githubusercontent.com/media/fivethirtyeight/data/master/scrabble-games/scrabble_games.csv")
+```
+
+```{r}
+head(scrabble_df)
+```
+
+## Visualize Distribution of Winning and Losing Scrabble Scores
+
+```{r}
+wl_df2[wl_df2$winnerscore_new < wl_df2$loserscore_new,]
+```
+
+```{r}
+# Keep winner scores and/or loser scores strictly greater than 0; ties are included
+wl_df = scrabble_df[scrabble_df$winnerscore > 0 & 
+                    scrabble_df$loserscore > 0,]
+
+# Assume games where winner scores are less than loser scores were recorded incorrectly
+# Swap scores if winner score is less than loser score
+wl_df2 = wl_df %>% transform(
+  winnerscore_new = ifelse(winnerscore < loserscore, loserscore, winnerscore),
+  loserscore_new = ifelse(loserscore > winnerscore, winnerscore, loserscore))
+dim(wl_df2) # This leaves us with 770653 Scrabble games
+```
+
+```{r}
+# Plot histograms of winner and loser scores
+p1 = ggplot(data = wl_df2) +
+  geom_histogram(aes(x = loserscore_new, fill = "Losing"), binwidth = 1) +
+  geom_histogram(aes(x = winnerscore_new, fill = "Winning"), binwidth = 1) +
+  labs(x = "Score", y = "Count", title = "Distribution of Scrabble Scores", fill = "Result") +
+  ylim(0, 10000) +
+  scale_fill_manual(values = c("Winning" = "#E41A1C", "Losing" = "#377EB8"))
+p1
+```
+
+## Plot Average Scrabble Scores Before and After 'Qi'/'Za'
+
+```{r}
+# Add average score column and divide date into years, months, and days
+score_df = wl_df %>% mutate(avgscore = (winnerscore + loserscore)/2) %>%
+  mutate(year = as.numeric(format(as.Date(date), format = "%Y")),
+         month = as.numeric(format(as.Date(date), format = "%m")),
+         day = as.numeric(format(as.Date(date), format = "%d"))) %>%
+  select(avgscore, year, month, day)
+
+head(score_df)
+```
+
+```{r}
+# Find average score for tournaments between September 2005 and September 2006
+score_new_df = score_df[score_df$year >= 2005 & score_df$year < 2007,] %>% group_by(year, month, day) %>% summarize_all(mean) %>% subset((year == 2005 & month >= 8) | (year == 2006 & month <= 8)) %>% mutate(date = make_date(year, month, day))
+
+head(score_new_df)
+```
+
+```{r}
+# Fit regression lines to data before and after March 1, 2006
+score_new_df1 = score_new_df[(score_new_df$year == 2005) | (score_new_df$year == 2006 & score_new_df$month < 3),]
+fit_score1 = lm(avgscore ~ date, data = score_new_df1)
+fit1_df = data.frame(score_pred = predict(fit_score1, score_new_df1), 
+                     lower = date = score_new_df1$date)
+
+score_new_df2 = score_new_df[(score_new_df$year == 2006) & (score_new_df$month >= 3),]
+fit_score2 = lm(avgscore ~ date, data = score_new_df2)
+fit2_df = data.frame(score_pred = predict(fit_score2, score_new_df2), date = score_new_df2$date)
+
+# Plot average Scrabble scores between September 2005 and September 2006
+p2 = ggplot(data = score_new_df, aes(x = date, y = avgscore)) + 
+  geom_point() +
+  geom_line(color='red', data = fit1_df, aes(x=date, y=score_pred)) +
+  geom_line(color='red', data = fit2_df, aes(x=date, y=score_pred)) +
+  geom_vline(xintercept = as.numeric(as.Date("2006-03-01")), linetype="dashed") +
+  labs(x = "Date", 
+       y = "Score", 
+       title = "Scrabble Scores Before and After 'Qi'/'Za'", 
+       fill = "Result")
+p2
+```
+
